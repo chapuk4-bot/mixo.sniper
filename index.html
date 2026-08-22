@@ -3,6 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none';">
+<meta name="referrer" content="no-referrer">
 <title>Sniper Ctg</title>
 <meta name="theme-color" content="#0A0C08">
 <meta name="mobile-web-app-capable" content="yes">
@@ -160,8 +162,8 @@
   canvas{width:100%; display:block;}
   .traj-caption{display:flex; justify-content:space-between; font-family:'JetBrains Mono',monospace; font-size:9px; color:var(--dim); letter-spacing:0.05em; margin-top:4px; padding:0 2px;}
 
-  .flight-stats{display:flex; gap:0; margin-top:10px; border:1px solid var(--line); border-radius:var(--radius); overflow:hidden;}
-  .fstat{flex:1; padding:9px 6px; text-align:center; border-right:1px solid var(--line); background:var(--bg-raised);}
+  .flight-stats{display:flex; flex-wrap:wrap; gap:0; margin-top:10px; border:1px solid var(--line); border-radius:var(--radius); overflow:hidden;}
+  .fstat{flex:1 1 33.33%; min-width:76px; padding:9px 6px; text-align:center; border-right:1px solid var(--line); border-bottom:1px solid var(--line); background:var(--bg-raised); box-sizing:border-box;}
   .fstat:last-child{border-right:none;}
   .fstat .v{font-family:'JetBrains Mono',monospace; font-size:14px; font-weight:600; color:var(--text);}
   .fstat .l{font-family:'JetBrains Mono',monospace; font-size:8.5px; color:var(--dim); letter-spacing:0.08em; text-transform:uppercase; margin-top:2px;}
@@ -224,9 +226,17 @@
     border-radius:50%; background:var(--mrad);
   }
   .clock-readout{font-family:'JetBrains Mono',monospace; text-align:left;}
-  .clock-readout #t_windAt{font-size:9px; letter-spacing:0.1em; text-transform:uppercase; color:var(--dim); margin-bottom:4px;}
+  .clock-readout #t_windAt, .clock-readout #t_moveAt{font-size:9px; letter-spacing:0.1em; text-transform:uppercase; color:var(--dim); margin-bottom:4px;}
   .clock-hour{font-size:20px; font-weight:700; color:var(--moa);}
   .clock-deg{font-size:11px; color:var(--dim); margin-top:2px;}
+
+  /* movement-angle clock: same layout as the wind clock, distinct blue color scheme */
+  .move-clock .clock-tick.active{
+    background:var(--clk); color:#04141C; border-color:#79C4EE;
+    box-shadow:0 0 0 3px rgba(79,163,209,0.22);
+  }
+  .move-clock .clock-center{background:var(--cm);}
+  .move-hour{color:var(--clk);}
 
   .corner-logo{
     position:fixed; width:56px; height:auto; opacity:0.85; pointer-events:none;
@@ -332,8 +342,16 @@
         <span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--dim);margin-left:-92px;pointer-events:none;">m</span>
       </div>
       <div class="row">
-        <div class="row-label" id="t_slope">Slope angle<small id="t_slopeSmall">+ uphill / − downhill</small></div>
-        <input type="number" id="slope" value="0" step="1">
+      <div class="row row-select">
+        <div class="row-label" id="t_slope">Slope angle<small id="t_slopeSmall">angle from horizontal</small></div>
+        <div style="display:flex; gap:6px; align-items:center;">
+          <input type="number" id="slope" value="0" step="1" min="0" style="width:76px;">
+          <select id="slopeDir">
+            <option value="up" id="t_slopeUp">Uphill (+)</option>
+            <option value="down" id="t_slopeDown">Downhill (−)</option>
+          </select>
+        </div>
+      </div>
       </div>
       <div class="row">
         <div class="row-label" id="t_windspeed">Wind speed<small id="t_windspeedSmall">steady, not gusting</small></div>
@@ -361,9 +379,16 @@
           </select>
         </div>
       </div>
-      <div class="row">
-        <div class="row-label" id="t_moveAngle">Movement angle<small id="t_moveAngleSmall">90°=full crossing / 0°=head-on</small></div>
-        <input type="number" id="moveAngle" value="90" step="5" min="0" max="180">
+      <div class="clock-row">
+        <div class="row-label" id="t_moveAngle" style="margin-bottom:10px;">Movement angle<small id="t_moveAngleSmall">tap the clock position the target moves TOWARD</small></div>
+        <div class="clock-wrap">
+          <div class="wind-clock move-clock" id="moveClock"></div>
+          <div class="clock-readout">
+            <div id="t_moveAt">Moving toward</div>
+            <div class="clock-hour move-hour" id="moveClockHourReadout">3 o'clock</div>
+            <div class="clock-deg" id="moveClockDegReadout">(90°)</div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -469,6 +494,8 @@
     Point-mass trajectory solver using the standard G7 drag table, density-altitude air density correction, rifleman's-rule slope compensation, and lag-time wind drift. Calibrated against published .338 LM reference data but not verified for live-fire use — cross-check against a certified ballistic tool before dialing real turrets.
   </div>
 
+  <div class="note" id="t_introNote" style="margin-top:10px;">Introducing the Sniper CTG app 🚀<br>Hello dear friends and visitors!<br>I'm Chabook, and I've put my Sniper CTG project and app at your service. This app was built in a professional, modern style with the goal of providing the best service to CTG and making training easier, toward advancing the force.</div>
+
 </div>
 
 <script>
@@ -520,7 +547,9 @@ function densityAltitude(tempF, altitudeFt){
 }
 
 // Simulate flat-fire (angle theta) trajectory, return {x,y,vx,vy,v,t} sampled + final at target x
-function simulateTrajectory(v0, bc, rhoRatio, theta, targetX, opts){
+// headwindMs: longitudinal wind component in m/s (+ = headwind, - = tailwind), applied to the
+// relative velocity used for drag only (bullet's actual ground-frame vx/vy still integrate normally).
+function simulateTrajectory(v0, bc, rhoRatio, theta, targetX, opts, headwindMs=0){
   const g = 9.80665;
   const soundSpeed = 331.3*Math.sqrt(1+ (opts.tempC||15)/273.15); // approx local speed of sound
   const dt = 0.0004;
@@ -529,15 +558,18 @@ function simulateTrajectory(v0, bc, rhoRatio, theta, targetX, opts){
   const samples=[];
   let steps=0;
   while(x<targetX && t<4 && steps<40000){
-    const v = Math.sqrt(vx*vx+vy*vy);
-    const mach = v/soundSpeed;
-    const a = -K_BASE*rhoRatio*cdG7(mach)*v*v/bc;
-    const ax = a*vx/v;
-    const ay = a*vy/v - g;
+    // relative velocity w.r.t. the air mass: headwind adds to the bullet's closing speed,
+    // tailwind subtracts from it, which is what actually changes drag (not ground speed).
+    const vxRel = vx + headwindMs;
+    const vRel = Math.sqrt(vxRel*vxRel+vy*vy) || 1e-9;
+    const mach = vRel/soundSpeed;
+    const a = -K_BASE*rhoRatio*cdG7(mach)*vRel*vRel/bc;
+    const ax = a*vxRel/vRel;
+    const ay = a*vy/vRel - g;
     vx += ax*dt; vy += ay*dt;
     x += vx*dt; y += vy*dt; t += dt;
     steps++;
-    if(steps % 25 === 0) samples.push({x,y,t,v});
+    if(steps % 25 === 0) samples.push({x,y,t,v:Math.sqrt(vx*vx+vy*vy)});
   }
   return {x,y,vx,vy,v:Math.sqrt(vx*vx+vy*vy),t,samples};
 }
@@ -568,20 +600,26 @@ function computeSolution(inp){
 
   const opts = {tempC};
 
-  // zero the rifle on a horizontal zeroRange
+  // Wind vector resolution: clock convention 12=0°/6=180° (Math.cos → longitudinal),
+  // 3=90°/9=270° (Math.sin → crosswind), so a pure 3/9 o'clock wind is 100% crosswind
+  // and a pure 12/6 o'clock wind is 100% longitudinal (headwind/tailwind), scaling
+  // smoothly in between exactly as true trig vector resolution requires.
+  const windMs = windSpeedKmh/3.6;
+  const windDirRad = windDirDeg*Math.PI/180;
+  const crossWind = windMs*Math.sin(windDirRad); // + = from the right
+  const headwindMs = windMs*Math.cos(windDirRad); // + = headwind (12 o'clock), - = tailwind (6 o'clock)
+
+  // zero the rifle on a horizontal zeroRange (zeroed in still air, per standard practice)
   const theta = findZeroAngle(muzzleVel,bc,rhoRatio,zeroRange,sightH,opts);
 
-  // trajectory to the slope-adjusted horizontal distance
-  const shot = simulateTrajectory(muzzleVel,bc,rhoRatio,theta,horizX,opts);
+  // trajectory to the slope-adjusted horizontal distance, with headwind/tailwind affecting drag
+  const shot = simulateTrajectory(muzzleVel,bc,rhoRatio,theta,horizX,opts,headwindMs);
   const dropLOS = shot.y - sightH; // negative = below line of sight
 
   // no-drag reference time (for wind lag method), using same horizontal distance
   const tNoDrag = horizX/muzzleVel;
   const windLagT = shot.t - tNoDrag;
 
-  const windMs = windSpeedKmh/3.6;
-  const windDirRad = windDirDeg*Math.PI/180;
-  const crossWind = windMs*Math.sin(windDirRad); // + = from the right, pushes drift left is negative sign convention below
   const drift = crossWind*windLagT; // meters, + means drifts toward wind-push direction
 
   // spin drift (gyroscopic drift): 1.25 * ToF^1.83 * (caliber/twist), inches -> meters
@@ -617,11 +655,21 @@ function computeSolution(inp){
   const spinDriftMOA = spinDriftMRAD*3.43775;
   const spinDriftClicks = spinDriftMRAD/clickValue;
 
+  // kinetic energy at impact: standard ballistic reference figure (not a wound/injury metric)
+  const bulletMassKg = bulletWeight*0.00006479891; // grains -> kg
+  const muzzleEnergyJ = 0.5*bulletMassKg*muzzleVel*muzzleVel;
+  const impactEnergyJ = 0.5*bulletMassKg*shot.v*shot.v;
+  const muzzleEnergyFtLb = muzzleEnergyJ*0.737562149;
+  const impactEnergyFtLb = impactEnergyJ*0.737562149;
+  const muzzleEnergyKgm = muzzleEnergyJ/9.80665;
+  const impactEnergyKgm = impactEnergyJ/9.80665;
+
   return {
-    da, rhoRatio, dropLOS, drift, spinDriftM, spinDriftIn, totalDrift, tof: shot.t, impactV: shot.v,
+    da, rhoRatio, dropLOS, drift, crossWind, headwindMs, spinDriftM, spinDriftIn, totalDrift, tof: shot.t, impactV: shot.v,
     vertMOA, horizMOA, vertMRAD, horizMRAD, vertCM, horizCM, vertClicks, horizClicks,
     leadMOA, leadMRAD, leadCM, leadClicks, targetSpeedMs,
     spinDriftMRAD, spinDriftMOA, spinDriftClicks,
+    muzzleEnergyJ, impactEnergyJ, muzzleEnergyFtLb, impactEnergyFtLb, muzzleEnergyKgm, impactEnergyKgm,
     theta, shot, horizX
   };
 }
@@ -677,6 +725,51 @@ buildWindClock();
 windDirDegCurrent = hourToDeg(windClockHour);
 updateClockReadout();
 
+// ---------- movement-angle clock ----------
+// Same clock face as the wind dial, but represents the direction the TARGET moves toward.
+// 12 = moving straight away/toward (0°, head-on, no lead), 3/9 = full left-right crossing (±90°),
+// 6 = moving straight toward/away the other way (180°, still no lateral lead, sin(180°)=0).
+// Using the signed -180..180 degree (same hourToDeg convention as wind) lets moveAngle carry
+// direction, not just magnitude, so the lead component's sign correctly flips left vs right.
+let moveAngleDegCurrent = 90; // default: 3 o'clock, full crossing
+let moveClockHour = 3;
+
+function buildMoveClock(){
+  const clock = $('moveClock');
+  clock.innerHTML = '';
+  const center = document.createElement('div');
+  center.className = 'clock-center';
+  clock.appendChild(center);
+  const R = 58;
+  for(let h=1; h<=12; h++){
+    const tick = document.createElement('div');
+    tick.className = 'clock-tick' + (h===moveClockHour ? ' active':'');
+    tick.textContent = h;
+    tick.dataset.hour = h;
+    const angleRad = (h*30 - 90) * Math.PI/180;
+    const x = 75 + R*Math.cos(angleRad);
+    const y = 75 + R*Math.sin(angleRad);
+    tick.style.left = x+'px';
+    tick.style.top = y+'px';
+    tick.addEventListener('click', ()=>{
+      moveClockHour = h;
+      moveAngleDegCurrent = hourToDeg(h);
+      updateMoveClockReadout();
+      buildMoveClock();
+    });
+    clock.appendChild(tick);
+  }
+}
+
+function updateMoveClockReadout(){
+  $('moveClockHourReadout').textContent = moveClockHour + " o'clock";
+  $('moveClockDegReadout').textContent = `(${hourToDeg(moveClockHour)}°)`;
+}
+
+buildMoveClock();
+moveAngleDegCurrent = hourToDeg(moveClockHour);
+updateMoveClockReadout();
+
 // ---------- translations ----------
 const I18N = {
   en: {
@@ -685,12 +778,14 @@ const I18N = {
     t_daBadge_prefix: 'DENSITY-CORRECTED',
     t_sectionTarget: 'Target',
     t_distance: 'Distance', t_distanceSmall: 'slant range to target',
-    t_slope: 'Slope angle', t_slopeSmall: '+ uphill / − downhill',
+    t_slope: 'Slope angle', t_slopeSmall: 'angle from horizontal',
+    t_slopeUp: 'Uphill (+)', t_slopeDown: 'Downhill (−)',
     t_windspeed: 'Wind speed', t_windspeedSmall: 'steady, not gusting',
     t_winddir: 'Wind direction', t_winddirSmall: 'tap the clock position the wind blows FROM',
     t_windAt: 'Wind at',
+    t_moveAt: 'Moving toward',
     t_targetSpeed: 'Target speed', t_targetSpeedSmall: 'for moving-target lead',
-    t_moveAngle: 'Movement angle', t_moveAngleSmall: '90°=full crossing / 0°=head-on',
+    t_moveAngle: 'Movement angle', t_moveAngleSmall: 'tap the clock position the target moves TOWARD',
     t_sectionEnv: 'Environment',
     t_kestrelBtn: 'Connect Kestrel (Bluetooth)',
     kestrelNoSupport: 'Bluetooth not supported in this browser (use Chrome, HTTPS).',
@@ -714,10 +809,11 @@ const I18N = {
     t_clickValue: 'Click value', t_clickValueSmall: 'per click, both axes',
     t_placeholder: '— run Calculate to solve the firing solution —',
     t_note: "Point-mass trajectory solver using the standard G7 drag table, density-altitude air density correction, rifleman's-rule slope compensation, and lag-time wind drift. Calibrated against published .338 LM reference data but not verified for live-fire use — cross-check against a certified ballistic tool before dialing real turrets.",
+    t_introNote: "Introducing the Sniper CTG app 🚀<br>Hello dear friends and visitors!<br>I'm Chabook, and I've put my Sniper CTG project and app at your service. This app was built in a professional, modern style with the goal of providing the best service to CTG and making training easier, toward advancing the force.",
     t_lockSub: 'ENTER ACCESS CODE',
     calcBtn: 'Calculate', resetBtn: 'Reset',
     weatherPrefix: 'Weather:',
-    tofLabel: 'Time of flight', impactLabel: 'Impact velocity', retainedLabel: 'Retained',
+    tofLabel: 'Time of flight', impactLabel: 'Impact velocity', retainedLabel: 'Retained', energyLabel: 'Impact energy', energyKgmLabel: 'Impact energy (kgm)',
     spinDriftLabel: 'Spin drift',
     vertLabel: 'Vert.', horLabel: 'Hor.', leadLabel: 'Lead',
     t_reticleBtn: 'Reticle', reticleCaptionLeft: 'HOLD POINT · orange dot',
@@ -730,12 +826,14 @@ const I18N = {
     t_daBadge_prefix: 'چاککراوی چڕی هەوا',
     t_sectionTarget: 'ئامانج',
     t_distance: 'دووری', t_distanceSmall: 'دووری خەت بۆ ئامانج',
-    t_slope: 'گۆشەی لار', t_slopeSmall: '+ سەرەوە / − خوارەوە',
+    t_slope: 'گۆشەی لار', t_slopeSmall: 'گۆشە لە ئاسۆوە',
+    t_slopeUp: 'موجەب (+) سەرەوە', t_slopeDown: 'ساڵب (−) خوارەوە',
     t_windspeed: 'خێرایی با', t_windspeedSmall: 'جێگیر، بێ هەڵمژین',
     t_winddir: 'ئاراستەی با', t_winddirSmall: 'کلیک لەسەر شوێنی کاتژمێر بکە کە با لێی دێت',
     t_windAt: 'با لە',
+    t_moveAt: 'جوڵان بەرەو',
     t_targetSpeed: 'خێرایی ئامانج', t_targetSpeedSmall: 'بۆ حیسابی پێشکەوتنی ئامانجی جوڵاو',
-    t_moveAngle: 'گۆشەی جوڵان', t_moveAngleSmall: '٩٠°=تێپەڕینی تەواو / ٠°=ڕوو بەڕوو',
+    t_moveAngle: 'گۆشەی جوڵان', t_moveAngleSmall: 'کلیک لەسەر شوێنی کاتژمێر بکە کە ئامانج بەرەویدا دەجوڵێت',
     t_sectionEnv: 'کەشوهەوا',
     t_kestrelBtn: 'بەستنەوە بە Kestrel (Bluetooth)',
     kestrelNoSupport: 'ئەم وێبگەڕە Bluetooth پاڵپشتی ناکات (Chrome و HTTPS بەکاربهێنە).',
@@ -759,10 +857,11 @@ const I18N = {
     t_clickValue: 'بەهای کلیک', t_clickValueSmall: 'بۆ هەردوو ئاراستە',
     t_placeholder: '— دوگمەی Calculate دابگرە بۆ چارەسەرکردن —',
     t_note: 'چارەسەرکەری ڕێڕەوی فیشەک بەپێی خشتەی ڕاکێشانی G7، چاککردنەوەی چڕی هەوا بەپێی بەرزی، یاسای لارکردن، و شێوازی درەنگکەوتنی با. لەگەڵ زانیارییەکانی .338 LM پشکنراوە بەڵام بۆ شلیکی ڕاستەقینە پشتڕاست نەکراوەتەوە.',
+    t_introNote: 'ناساندنی بەرنامەی sniper ctg 🚀<br>سڵاو لە هاوڕێیان و سەردانکەرانی خۆشەویست!<br>من چابووکم، و پڕۆژە و بەرنامەی sniper ctgـم خستە خزمەتتانەوە. ئەم بەرنامەیەمان بە شێوازێکی پرۆفیشناڵ و مۆدێرن دروستکردووە بە ئامانجی پێشکەشکردنی باشترین خزمەتکردن بە CTG و ئاسانکاریکردن بۆ ڕاهێنان بەرەو پێیشچونی هێیزەکە .',
     t_lockSub: 'کۆدی چوونەژوورەوە بنووسە',
     calcBtn: 'حیساب بکە', resetBtn: 'دووبارە',
     weatherPrefix: 'کەشوهەوا:',
-    tofLabel: 'کاتی فڕین', impactLabel: 'خێرایی لێدان', retainedLabel: 'ماوە',
+    tofLabel: 'کاتی فڕین', impactLabel: 'خێرایی لێدان', retainedLabel: 'ماوە', energyLabel: 'وزەی کوتان', energyKgmLabel: 'وزەی کوتان (kgm)',
     spinDriftLabel: 'لادانی خولانەوە',
     vertLabel: 'ستوونی', horLabel: 'ئاسۆیی', leadLabel: 'پێشکەوتن',
     t_reticleBtn: 'سکۆپ', reticleCaptionLeft: 'خاڵی تەقەکردن · خاڵی پرتەقاڵی',
@@ -778,7 +877,7 @@ function setLang(lang){
   document.documentElement.lang = lang;
   document.documentElement.dir = (lang==='ku') ? 'rtl' : 'ltr';
   Object.keys(dict).forEach(key=>{
-    if(key.endsWith('_prefix') || ['calcBtn','resetBtn','weatherPrefix','tofLabel','impactLabel','retainedLabel','vertLabel','horLabel','leadLabel','spinDriftLabel','kestrelNoSupport','kestrelScanning','kestrelConnecting','kestrelNoESS','kestrelConnected','kestrelDisconnected','kestrelFailed'].includes(key)) return;
+    if(key.endsWith('_prefix') || ['calcBtn','resetBtn','weatherPrefix','tofLabel','impactLabel','retainedLabel','energyLabel','energyKgmLabel','vertLabel','horLabel','leadLabel','spinDriftLabel','kestrelNoSupport','kestrelScanning','kestrelConnecting','kestrelNoESS','kestrelConnected','kestrelDisconnected','kestrelFailed','t_introNote'].includes(key)) return;
     const el = $(key);
     if(!el) return;
     const smallEl = el.querySelector('small');
@@ -796,6 +895,8 @@ function setLang(lang){
   const rBtn = $('t_reticleBtn'); if(rBtn) rBtn.textContent = dict.t_reticleBtn;
   if(lastSol && $('reticleWrap').style.display!=='none'){ renderReticle(lastSol, lastInp); }
   $('t_windAt').textContent = dict.t_windAt;
+  $('t_moveAt').textContent = dict.t_moveAt;
+  const introEl = $('t_introNote'); if(introEl) introEl.innerHTML = dict.t_introNote;
   const daB = $('t_daBadge');
   if(daB){ daB.childNodes[0].nodeValue = dict.t_daBadge_prefix; }
   document.querySelectorAll('.lang-btn').forEach(b=>b.classList.toggle('active', b.dataset.lang===lang));
@@ -811,7 +912,7 @@ document.querySelectorAll('.lang-btn').forEach(btn=>{
 function readInputs(){
   return {
     distance: parseFloat($('distance').value)||0,
-    slope: parseFloat($('slope').value)||0,
+    slope: (parseFloat($('slope').value)||0) * ($('slopeDir').value==='down' ? -1 : 1),
     windSpeedKmh: parseFloat($('windspeed').value)||0,
     windDirDeg: windDirDegCurrent,
     tempF: parseFloat($('temp').value)||59,
@@ -827,7 +928,7 @@ function readInputs(){
     twistDir: $('twistDir').value,
     targetSpeed: parseFloat($('targetSpeed').value)||0,
     targetSpeedUnit: $('targetSpeedUnit').value,
-    moveAngle: parseFloat($('moveAngle').value)||0,
+    moveAngle: moveAngleDegCurrent,
   };
 }
 
@@ -943,9 +1044,9 @@ function render(sol, inp){
     </tr>` : ''}
     <tr>
       <td>${I18N[currentLang].spinDriftLabel}</td>
-      <td class="col-moa">${fmtSigned(sol.spinDriftMOA,2)}</td>
-      <td class="col-mrad">${fmtSigned(sol.spinDriftMRAD,2)}</td>
-      <td class="col-cm">${fmtSigned(sol.spinDriftM*100,1)}</td>
+      <td class="col-moa">${fmtSigned(sol.spinDriftMOA,3)}</td>
+      <td class="col-mrad">${fmtSigned(sol.spinDriftMRAD,3)}</td>
+      <td class="col-cm">${fmtSigned(sol.spinDriftM*100,2)}</td>
       <td class="col-clk">${fmtSigned(sol.spinDriftClicks,1)}</td>
     </tr>
   `;
@@ -959,6 +1060,8 @@ function render(sol, inp){
     <div class="fstat"><div class="v">${Math.round(sol.impactV)} m/s</div><div class="l">${I18N[currentLang].impactLabel}</div></div>
     <div class="fstat"><div class="v">${(sol.impactV/inp.muzzleVel*100).toFixed(0)}%</div><div class="l">${I18N[currentLang].retainedLabel}</div></div>
     <div class="fstat"><div class="v">${(sol.spinDriftM*1000).toFixed(2)} mm</div><div class="l">${I18N[currentLang].spinDriftLabel}</div></div>
+    <div class="fstat"><div class="v">${Math.round(sol.impactEnergyJ)} J</div><div class="l">${I18N[currentLang].energyLabel}</div></div>
+    <div class="fstat"><div class="v">${sol.impactEnergyKgm.toFixed(1)} kgm</div><div class="l">${I18N[currentLang].energyKgmLabel}</div></div>
   `;
   wrap.appendChild(stats);
 }
